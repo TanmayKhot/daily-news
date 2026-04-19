@@ -94,6 +94,17 @@ def test_render_email_contains_core_pieces():
     assert "article bullet" in body
     assert "discussion bullet" in body
 
+    # The HN story title itself must link to the HN discussion URL, not
+    # the external article URL on example.com.
+    import re
+
+    hn_anchor = re.search(
+        r'<a href="([^"]+)"[^>]*>Anthropic ships Claude Opus 4\.7</a>', body
+    )
+    assert hn_anchor is not None, "HN title anchor not found in body"
+    assert "news.ycombinator.com/item?id=1" in hn_anchor.group(1)
+    assert "example.com" not in hn_anchor.group(1)
+
 
 def test_render_email_no_tldr_section_when_empty():
     stories = [_story("hn", "Only story")]

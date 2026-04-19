@@ -111,6 +111,13 @@ def _discussion_url(story: dict[str, Any]) -> str:
     )
 
 
+def _title_url(story: dict[str, Any]) -> str:
+    """HN title → HN discussion page; Reddit title → Reddit post page."""
+    if story.get("source") == "hn":
+        return story.get("hn_discussion_url") or story.get("url", "")
+    return story.get("url", "")
+
+
 def _age(ts: int | None) -> str:
     if not ts:
         return ""
@@ -139,7 +146,7 @@ def render_email(
     prepared = [
         {
             "title": s["title"],
-            "url": s.get("url", ""),
+            "url": _title_url(s),
             "discussion_url": _discussion_url(s),
             "source_tag": _source_tag(s),
             "points": s.get("points", 0),
