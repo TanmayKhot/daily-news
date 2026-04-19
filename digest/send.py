@@ -1,4 +1,9 @@
-"""Gmail SMTP delivery + SQLite run log."""
+"""Brevo SMTP delivery + SQLite run log.
+
+Brevo's SMTP login (e.g. ``a89cbc001@smtp-brevo.com``) is distinct from the
+visible ``From`` address — the login authenticates the relay while the
+sender is the verified email the recipient actually sees.
+"""
 
 from __future__ import annotations
 
@@ -11,10 +16,10 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
 
+from digest.config import BREVO_SMTP_HOST, BREVO_SMTP_PORT
+
 logger = logging.getLogger(__name__)
 
-GMAIL_HOST = "smtp.gmail.com"
-GMAIL_PORT = 465
 DB_PATH = Path("data/digest.db")
 
 
@@ -28,7 +33,10 @@ def send_email(
     *,
     recipient: str,
     sender: str,
-    password: str,
+    smtp_login: str,
+    smtp_password: str,
+    smtp_host: str = BREVO_SMTP_HOST,
+    smtp_port: int = BREVO_SMTP_PORT,
 ) -> None:
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
@@ -38,8 +46,9 @@ def send_email(
 
     ctx = ssl.create_default_context()
     try:
-        with smtplib.SMTP_SSL(GMAIL_HOST, GMAIL_PORT, context=ctx) as server:
-            server.login(sender, password)
+        with smtplib.SMTP(smtp_host, smtp_port) as server:
+            server.starttls(context=ctx)
+            server.login(smtp_login, smtp_password)
             server.sendmail(sender, [recipient], msg.as_string())
     except (smtplib.SMTPException, OSError) as exc:
         raise SendError(str(exc)) from exc

@@ -80,11 +80,21 @@ def main() -> int:
         print(html_body)
         return 0
 
-    password = os.getenv("GMAIL_APP_PASSWORD")
-    sender = os.getenv("GMAIL_SENDER", RECIPIENT_EMAIL)
-    if not password:
+    smtp_login = os.getenv("BREVO_SMTP_LOGIN")
+    smtp_key = os.getenv("BREVO_SMTP_KEY")
+    sender = os.getenv("SENDER_EMAIL")
+    missing = [
+        name
+        for name, value in (
+            ("BREVO_SMTP_LOGIN", smtp_login),
+            ("BREVO_SMTP_KEY", smtp_key),
+            ("SENDER_EMAIL", sender),
+        )
+        if not value
+    ]
+    if missing:
         logger.error(
-            "GMAIL_APP_PASSWORD not set; writing failed-%s.html", date
+            "missing env vars %s; writing failed-%s.html", missing, date
         )
         FAILED_DIR.mkdir(parents=True, exist_ok=True)
         (FAILED_DIR / f"failed-{date}.html").write_text(
@@ -94,7 +104,7 @@ def main() -> int:
             run_id,
             len(summarized),
             "no_credentials",
-            "GMAIL_APP_PASSWORD not set",
+            f"missing env vars: {missing}",
         )
         return 1
 
@@ -104,7 +114,8 @@ def main() -> int:
             html_body,
             recipient=RECIPIENT_EMAIL,
             sender=sender,
-            password=password,
+            smtp_login=smtp_login,
+            smtp_password=smtp_key,
         )
     except SendError as exc:
         logger.error("send failed: %s", exc)
