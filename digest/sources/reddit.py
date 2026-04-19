@@ -26,6 +26,7 @@ from digest.config import (
     REPLIES_PER_TOP_COMMENT,
     SUBREDDITS,
     TOP_COMMENTS_PER_POST,
+    yesterday_window_utc,
 )
 
 logger = logging.getLogger(__name__)
@@ -110,10 +111,17 @@ def fetch_candidates(
     *,
     subreddits: tuple[str, ...] = SUBREDDITS,
     limit: int = REDDIT_POSTS_PER_SUB,
-    time_window: str = "day",
+    window: tuple[int, int] | None = None,
     client: httpx.Client | None = None,
 ) -> list[dict[str, Any]]:
-    """Return top posts from each subreddit via RSS feed."""
+    """Return each subreddit's posts created during ``window`` (default: yesterday UTC).
+
+    Pulls ``t=week&limit=100`` from the RSS feed — enough cushion that
+    yesterday's posts are almost always included — then filters client-side
+    to the exact UTC calendar day. Reddit's RSS has no timestamp-range
+    filter, so the client-side pass is unavoidable.
+    """
+    start, end = window or yesterday_window_utc()
     owns_client = client is None
     client = client or _build_client()
 
@@ -123,13 +131,18 @@ def fetch_candidates(
             try:
                 resp = client.get(
                     REDDIT_RSS_URL.format(sub=sub),
-                    params={"t": time_window},
+                    params={"t": "week", "limit": 100},
                 )
                 resp.raise_for_status()
             except httpx.HTTPError as exc:
                 logger.warning("Reddit RSS %r failed: %s", sub, exc)
                 continue
-            candidates.extend(_parse_rss(resp.text, sub)[:limit])
+            in_window = [
+                item
+                for item in _parse_rss(resp.text, sub)
+                if start <= item["created_at_i"] < end
+            ]
+            candidates.extend(in_window[:limit])
     finally:
         if owns_client:
             client.close()

@@ -12,7 +12,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from digest.classify import rank_and_filter
-from digest.config import FINAL_DIGEST_SIZE, RECIPIENT_EMAIL
+from digest.config import FINAL_DIGEST_SIZE, RECIPIENT_EMAIL, yesterday_date_utc
 from digest.dedup import filter_unseen, mark_sent
 from digest.enrich import default_cache_path, enrich
 from digest.render import generate_tldr, render_email
@@ -44,7 +44,7 @@ def main() -> int:
     )
     load_dotenv()
 
-    date = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d")
+    date = yesterday_date_utc()
     run_id = datetime.now(tz=timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
     logger.info("fetching candidates")

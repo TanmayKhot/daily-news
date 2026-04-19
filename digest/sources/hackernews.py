@@ -5,7 +5,6 @@ from __future__ import annotations
 import html
 import logging
 import re
-import time
 from typing import Any
 
 import httpx
@@ -13,11 +12,11 @@ import httpx
 from digest.config import (
     AI_KEYWORDS,
     COMMENT_TOKEN_CAP,
-    HN_CANDIDATES_WINDOW_HOURS,
     HN_HITS_PER_KEYWORD,
     REPLIES_PER_TOP_COMMENT,
     TOP_COMMENTS_PER_POST,
     USER_AGENT,
+    yesterday_window_utc,
 )
 
 logger = logging.getLogger(__name__)
@@ -34,15 +33,16 @@ _TAG_RE = re.compile(r"<[^>]+>")
 def fetch_candidates(
     *,
     keywords: tuple[str, ...] = AI_KEYWORDS,
-    window_hours: int = HN_CANDIDATES_WINDOW_HOURS,
     hits_per_keyword: int = HN_HITS_PER_KEYWORD,
+    window: tuple[int, int] | None = None,
     client: httpx.Client | None = None,
 ) -> list[dict[str, Any]]:
-    """Return AI-relevant HN stories posted in the last ``window_hours``.
+    """Return AI-relevant HN stories posted during ``window`` (default: yesterday UTC).
 
     One Algolia query per keyword; results are merged and deduped by story id.
+    ``window`` is ``(start_ts, end_ts)`` — end is exclusive.
     """
-    cutoff = int(time.time()) - window_hours * 3600
+    start, end = window or yesterday_window_utc()
     owns_client = client is None
     client = client or httpx.Client(
         headers={"User-Agent": USER_AGENT}, timeout=15.0
@@ -54,7 +54,7 @@ def fetch_candidates(
             params = {
                 "query": kw,
                 "tags": "story",
-                "numericFilters": f"created_at_i>{cutoff}",
+                "numericFilters": f"created_at_i>={start},created_at_i<{end}",
                 "hitsPerPage": hits_per_keyword,
             }
             try:
