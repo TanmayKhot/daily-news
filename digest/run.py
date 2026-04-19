@@ -12,7 +12,8 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from digest.classify import rank_and_filter
-from digest.config import RECIPIENT_EMAIL
+from digest.config import FINAL_DIGEST_SIZE, RECIPIENT_EMAIL
+from digest.dedup import filter_unseen, mark_sent
 from digest.enrich import default_cache_path, enrich
 from digest.render import generate_tldr, render_email
 from digest.send import SendError, log_run, send_email
@@ -50,11 +51,23 @@ def main() -> int:
     pool = hn_src.fetch_candidates() + rd_src.fetch_candidates()
     logger.info("got %d candidates", len(pool))
 
-    top = rank_and_filter(pool)
-    logger.info("classified → %d stories above threshold", len(top))
-    if not top:
+    ranked = rank_and_filter(pool, max_results=FINAL_DIGEST_SIZE * 3)
+    logger.info("classified → %d stories above threshold", len(ranked))
+    if not ranked:
         logger.error("no stories survived classification; aborting")
         return 1
+
+    unseen = filter_unseen(ranked)
+    top = unseen[:FINAL_DIGEST_SIZE]
+    if not top:
+        logger.error("all ranked stories were already sent; aborting")
+        return 1
+    if len(top) < FINAL_DIGEST_SIZE:
+        logger.warning(
+            "only %d unseen stories available (wanted %d)",
+            len(top),
+            FINAL_DIGEST_SIZE,
+        )
 
     enriched = enrich(top, cache_path=default_cache_path())
     summarized = summarize_all(enriched)
@@ -102,6 +115,7 @@ def main() -> int:
         log_run(run_id, len(summarized), "failed", str(exc))
         return 1
 
+    mark_sent(summarized)
     log_run(run_id, len(summarized), "sent")
     logger.info("digest sent to %s", RECIPIENT_EMAIL)
     return 0
