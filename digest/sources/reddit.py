@@ -1,8 +1,21 @@
-"""Reddit candidate fetcher + comment-tree fetcher (public JSON endpoints)."""
+"""Reddit candidate fetcher (RSS) + comment-tree fetcher (public JSON).
+
+Uses Reddit's unauthenticated endpoints with an identifying User-Agent.
+Set ``REDDIT_USERNAME`` in .env so the UA references your account — that
+avoids the generic-scraper 403s. Example UA:
+
+    ai-digest/0.1 by u/yourname
+
+RSS endpoint (``/r/{sub}/top/.rss?t=day``) returns 25 top-today posts but
+omits points + comment counts; they show as 0 until we swap in OAuth.
+"""
 
 from __future__ import annotations
 
 import logging
+import os
+import xml.etree.ElementTree as ET
+from datetime import datetime
 from typing import Any
 
 import httpx
@@ -13,17 +26,84 @@ from digest.config import (
     REPLIES_PER_TOP_COMMENT,
     SUBREDDITS,
     TOP_COMMENTS_PER_POST,
-    USER_AGENT,
 )
 
 logger = logging.getLogger(__name__)
 
-REDDIT_TOP_URL = "https://www.reddit.com/r/{sub}/top.json"
+REDDIT_RSS_URL = "https://www.reddit.com/r/{sub}/top/.rss"
 REDDIT_POST_URL = "https://www.reddit.com{permalink}"
 REDDIT_PERMALINK_JSON = "https://www.reddit.com{permalink}.json"
 
+_ATOM_NS = "{http://www.w3.org/2005/Atom}"
 _COMMENT_CHAR_CAP = COMMENT_TOKEN_CAP * 4
 _REMOVED_BODIES = {"[removed]", "[deleted]", ""}
+
+
+def _user_agent() -> str:
+    username = (os.getenv("REDDIT_USERNAME") or "").strip().lstrip("u/").lstrip("/")
+    if username:
+        return f"ai-digest/0.1 by u/{username}"
+    return "ai-digest/0.1"
+
+
+def _build_client() -> httpx.Client:
+    return httpx.Client(
+        headers={"User-Agent": _user_agent()}, timeout=15.0
+    )
+
+
+def _parse_rss(xml_text: str, sub: str) -> list[dict[str, Any]]:
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError as exc:
+        logger.warning("Reddit RSS parse error for %s: %s", sub, exc)
+        return []
+
+    items: list[dict[str, Any]] = []
+    for entry in root.findall(f"{_ATOM_NS}entry"):
+        id_el = entry.find(f"{_ATOM_NS}id")
+        raw_id = (id_el.text or "").strip() if id_el is not None else ""
+        post_id = raw_id[3:] if raw_id.startswith("t3_") else raw_id
+        if not post_id:
+            continue
+
+        title_el = entry.find(f"{_ATOM_NS}title")
+        title = (title_el.text or "").strip() if title_el is not None else ""
+
+        link_el = entry.find(f"{_ATOM_NS}link")
+        reddit_url = link_el.get("href", "") if link_el is not None else ""
+
+        permalink = ""
+        if reddit_url.startswith("https://www.reddit.com"):
+            permalink = reddit_url[len("https://www.reddit.com"):]
+
+        pub_el = entry.find(f"{_ATOM_NS}published")
+        created_at_i = 0
+        if pub_el is not None and pub_el.text:
+            try:
+                dt = datetime.fromisoformat(
+                    pub_el.text.replace("Z", "+00:00")
+                )
+                created_at_i = int(dt.timestamp())
+            except ValueError:
+                pass
+
+        items.append(
+            {
+                "id": post_id,
+                "title": title,
+                "url": reddit_url,
+                "points": 0,
+                "num_comments": 0,
+                "created_at_i": created_at_i,
+                "subreddit": sub,
+                "permalink": permalink,
+                "reddit_discussion_url": reddit_url,
+                "source": "reddit",
+            }
+        )
+
+    return items
 
 
 def fetch_candidates(
@@ -33,49 +113,23 @@ def fetch_candidates(
     time_window: str = "day",
     client: httpx.Client | None = None,
 ) -> list[dict[str, Any]]:
-    """Return top posts from each subreddit over ``time_window`` (``day`` by default)."""
+    """Return top posts from each subreddit via RSS feed."""
     owns_client = client is None
-    client = client or httpx.Client(
-        headers={"User-Agent": USER_AGENT}, timeout=15.0
-    )
+    client = client or _build_client()
 
     candidates: list[dict[str, Any]] = []
     try:
         for sub in subreddits:
             try:
                 resp = client.get(
-                    REDDIT_TOP_URL.format(sub=sub),
-                    params={"t": time_window, "limit": limit},
+                    REDDIT_RSS_URL.format(sub=sub),
+                    params={"t": time_window},
                 )
                 resp.raise_for_status()
             except httpx.HTTPError as exc:
-                logger.warning("Reddit sub %r failed: %s", sub, exc)
+                logger.warning("Reddit RSS %r failed: %s", sub, exc)
                 continue
-
-            listing = resp.json().get("data", {}).get("children", [])
-            for child in listing:
-                data = child.get("data", {})
-                if data.get("stickied") or data.get("over_18"):
-                    continue
-                permalink = data.get("permalink") or ""
-                candidates.append(
-                    {
-                        "id": data.get("id"),
-                        "title": data.get("title") or "",
-                        "url": data.get("url_overridden_by_dest")
-                        or data.get("url")
-                        or REDDIT_POST_URL.format(permalink=permalink),
-                        "points": data.get("score") or 0,
-                        "num_comments": data.get("num_comments") or 0,
-                        "created_at_i": int(data.get("created_utc") or 0),
-                        "subreddit": data.get("subreddit") or sub,
-                        "permalink": permalink,
-                        "reddit_discussion_url": REDDIT_POST_URL.format(
-                            permalink=permalink
-                        ),
-                        "source": "reddit",
-                    }
-                )
+            candidates.extend(_parse_rss(resp.text, sub)[:limit])
     finally:
         if owns_client:
             client.close()
@@ -96,22 +150,20 @@ def fetch_comments(
     max_replies: int = REPLIES_PER_TOP_COMMENT,
     client: httpx.Client | None = None,
 ) -> list[dict[str, Any]]:
-    """Return top ``max_roots`` comments with up to ``max_replies`` replies each.
-
-    Reddit already sorts top-level comments by its "best" algorithm in the JSON
-    response. We respect that order.
-    """
+    """Return top ``max_roots`` comments with up to ``max_replies`` replies each."""
     owns_client = client is None
-    client = client or httpx.Client(
-        headers={"User-Agent": USER_AGENT}, timeout=15.0
-    )
+    client = client or _build_client()
 
     try:
         try:
-            resp = client.get(REDDIT_PERMALINK_JSON.format(permalink=permalink))
+            resp = client.get(
+                REDDIT_PERMALINK_JSON.format(permalink=permalink)
+            )
             resp.raise_for_status()
         except httpx.HTTPError as exc:
-            logger.warning("Reddit comments for %s failed: %s", permalink, exc)
+            logger.warning(
+                "Reddit comments for %s failed: %s", permalink, exc
+            )
             return []
 
         payload = resp.json()

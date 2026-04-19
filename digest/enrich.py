@@ -67,6 +67,7 @@ def enrich(
             cache = {}
 
     client = httpx.Client(headers={"User-Agent": USER_AGENT}, timeout=15.0)
+    reddit_client = reddit._build_client()
     enriched: list[dict[str, Any]] = []
     try:
         for story in stories:
@@ -81,7 +82,9 @@ def enrich(
             if story["source"] == "hn":
                 comments = hackernews.fetch_comments(story["id"], client=client)
             elif story["source"] == "reddit":
-                comments = reddit.fetch_comments(story["permalink"], client=client)
+                comments = reddit.fetch_comments(
+                    story["permalink"], client=reddit_client
+                )
             else:
                 logger.warning("unknown source %r on story %s", story.get("source"), key)
                 comments = []
