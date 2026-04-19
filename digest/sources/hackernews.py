@@ -10,9 +10,9 @@ from typing import Any
 import httpx
 
 from digest.config import (
-    AI_KEYWORDS,
     COMMENT_TOKEN_CAP,
     HN_HITS_PER_KEYWORD,
+    HN_TOPICS,
     REPLIES_PER_TOP_COMMENT,
     TOP_COMMENTS_PER_POST,
     USER_AGENT,
@@ -32,15 +32,16 @@ _TAG_RE = re.compile(r"<[^>]+>")
 
 def fetch_candidates(
     *,
-    keywords: tuple[str, ...] = AI_KEYWORDS,
-    hits_per_keyword: int = HN_HITS_PER_KEYWORD,
+    topics: tuple[str, ...] = HN_TOPICS,
+    hits_per_topic: int = HN_HITS_PER_KEYWORD,
     window: tuple[int, int] | None = None,
     client: httpx.Client | None = None,
 ) -> list[dict[str, Any]]:
-    """Return AI-relevant HN stories posted during ``window`` (default: yesterday UTC).
+    """Return HN stories matching any of ``topics`` posted during ``window``.
 
-    One Algolia query per keyword; results are merged and deduped by story id.
-    ``window`` is ``(start_ts, end_ts)`` — end is exclusive.
+    One Algolia query per topic; results are merged and deduped by story id.
+    ``window`` is ``(start_ts, end_ts)`` — end is exclusive. Defaults to
+    yesterday's UTC calendar day.
     """
     start, end = window or yesterday_window_utc()
     owns_client = client is None
@@ -50,18 +51,18 @@ def fetch_candidates(
 
     seen: dict[int, dict[str, Any]] = {}
     try:
-        for kw in keywords:
+        for topic in topics:
             params = {
-                "query": kw,
+                "query": topic,
                 "tags": "story",
                 "numericFilters": f"created_at_i>={start},created_at_i<{end}",
-                "hitsPerPage": hits_per_keyword,
+                "hitsPerPage": hits_per_topic,
             }
             try:
                 resp = client.get(ALGOLIA_ENDPOINT, params=params)
                 resp.raise_for_status()
             except httpx.HTTPError as exc:
-                logger.warning("HN keyword %r failed: %s", kw, exc)
+                logger.warning("HN topic %r failed: %s", topic, exc)
                 continue
 
             for hit in resp.json().get("hits", []):

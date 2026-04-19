@@ -1,10 +1,19 @@
-"""Unit tests for the time-window helpers in digest.config."""
+"""Unit tests for config helpers — time windows and TOML topic loading."""
 
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from pathlib import Path
 
-from digest.config import yesterday_date_utc, yesterday_window_utc
+import pytest
+
+from digest.config import (
+    HN_TOPICS,
+    SUBREDDITS,
+    load_topics_config,
+    yesterday_date_utc,
+    yesterday_window_utc,
+)
 
 SECONDS_PER_DAY = 86_400
 
@@ -50,3 +59,28 @@ def test_yesterday_date_string_is_previous_utc_day() -> None:
 def test_yesterday_date_handles_year_boundary() -> None:
     now = datetime(2027, 1, 1, 0, 5, 0, tzinfo=timezone.utc)
     assert yesterday_date_utc(now=now) == "2026-12-31"
+
+
+def test_load_topics_config_parses_both_sections(tmp_path: Path) -> None:
+    toml = tmp_path / "config.toml"
+    toml.write_text(
+        '[hackernews]\n'
+        'topics = ["foo", "bar"]\n'
+        '\n'
+        '[reddit]\n'
+        'subreddits = ["baz", "qux"]\n'
+    )
+    cfg = load_topics_config(toml)
+    assert cfg["hackernews"]["topics"] == ["foo", "bar"]
+    assert cfg["reddit"]["subreddits"] == ["baz", "qux"]
+
+
+def test_load_topics_config_missing_file_raises(tmp_path: Path) -> None:
+    with pytest.raises(FileNotFoundError):
+        load_topics_config(tmp_path / "does-not-exist.toml")
+
+
+def test_real_config_toml_exposes_non_empty_tuples() -> None:
+    """Guards against an empty config.toml silently shipping an empty pipeline."""
+    assert isinstance(HN_TOPICS, tuple) and len(HN_TOPICS) > 0
+    assert isinstance(SUBREDDITS, tuple) and len(SUBREDDITS) > 0

@@ -1,0 +1,33 @@
+# Topic + subreddit config for the daily digest.
+#
+# Edit the lists below and re-run `python -m digest.run` — no code change
+# needed. The pipeline re-reads this file on every run.
+
+[hackernews]
+# Seed queries against the HN Algolia search API. One search per topic;
+# results are deduped by story id. Broader topics mean a larger candidate
+# pool and a slightly higher classification cost.
+topics = [
+    "AI",
+    "LLM",
+    "GPT",
+    "Claude",
+    "transformer",
+    "agent",
+    "diffusion",
+    "neural",
+    "model",
+    "Anthropic",
+    "OpenAI",
+]
+
+[reddit]
+# Subreddits to pull yesterday's top posts from — no "r/" prefix.
+# New subs work immediately as long as they're public.
+subreddits = [
+    "MachineLearning",
+    "LocalLLaMA",
+    "singularity",
+    "artificial",
+    "OpenAI",
+]
