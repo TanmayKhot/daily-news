@@ -4,6 +4,10 @@ A daily AI-news digest pipeline. Fetches yesterday's top posts from Hacker
 News and a set of subreddits, ranks them for AI relevance, summarizes the
 article + discussion with Claude Haiku, and emails a single HTML digest.
 
+A rendered sample is in
+[`examples/digest-sample.html`](examples/digest-sample.html) — open it in
+a browser to see what lands in the inbox.
+
 ## Features
 
 - **LLM summarization** — each story gets two independent summaries: a
