@@ -1,4 +1,4 @@
-# daily-news
+# AI Digest
 
 A daily AI-news digest pipeline. Fetches yesterday's top posts from Hacker
 News and a set of subreddits, ranks them for AI relevance, summarizes the
