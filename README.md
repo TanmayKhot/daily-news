@@ -4,9 +4,9 @@ A daily AI-news digest pipeline. Fetches yesterday's top posts from Hacker
 News and a set of subreddits, ranks them for AI relevance, summarizes the
 article + discussion with Claude Haiku, and emails a single HTML digest.
 
-A rendered sample is in
-[`examples/digest-sample.html`](examples/digest-sample.html) — open it in
-a browser to see what lands in the inbox.
+**Live sample:** <https://tanmaykhot.github.io/daily-news/> — a real
+rendered digest, exactly as it arrives in the inbox. Source at
+[`docs/index.html`](docs/index.html).
 
 ## Features
 
